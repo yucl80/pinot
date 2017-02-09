@@ -86,9 +86,9 @@ public class RealtimeSegmentTest {
     List<String> invertedIdxCols = new ArrayList<>();
     invertedIdxCols.add("count");
     segmentWithInvIdx = new RealtimeSegmentImpl(schema, 100000, tableName, "noSegment", AVRO_DATA, new ServerMetrics(new MetricsRegistry()),
-        invertedIdxCols);
+        invertedIdxCols, null);
     segmentWithoutInvIdx =
-        new RealtimeSegmentImpl(schema, 100000, tableName, "noSegment", AVRO_DATA, new ServerMetrics(new MetricsRegistry()));
+        new RealtimeSegmentImpl(schema, 100000, tableName, "noSegment", AVRO_DATA, new ServerMetrics(new MetricsRegistry()), null);
     GenericRow row = provider.next(new GenericRow());
     while (row != null) {
       segmentWithInvIdx.index(row);

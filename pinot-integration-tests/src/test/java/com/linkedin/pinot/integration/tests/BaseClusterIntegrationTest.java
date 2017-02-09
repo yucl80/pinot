@@ -15,6 +15,7 @@
  */
 package com.linkedin.pinot.integration.tests;
 
+import com.google.common.primitives.Ints;
 import com.google.common.primitives.Longs;
 import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.Futures;
@@ -730,7 +731,7 @@ public abstract class BaseClusterIntegrationTest extends ClusterTest {
 
           byte[] bytes = outputStream.toByteArray();
           KeyedMessage<byte[], byte[]> data = new KeyedMessage<byte[], byte[]>(kafkaTopic,
-              Longs.toByteArray(System.currentTimeMillis()), bytes);
+              Ints.toByteArray(Arrays.hashCode(bytes)), bytes);
 
           if (BATCH_KAFKA_MESSAGES) {
             messagesToWrite.add(data);

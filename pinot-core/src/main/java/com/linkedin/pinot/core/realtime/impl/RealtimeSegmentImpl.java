@@ -15,6 +15,8 @@
  */
 package com.linkedin.pinot.core.realtime.impl;
 
+import com.clearspring.analytics.stream.membership.BloomFilter;
+import com.google.common.primitives.Ints;
 import com.linkedin.pinot.common.metrics.ServerMeter;
 import com.linkedin.pinot.common.metrics.ServerMetrics;
 import java.io.IOException;
@@ -93,9 +95,11 @@ public class RealtimeSegmentImpl implements RealtimeSegment {
 
   private final ServerMetrics serverMetrics;
   private final String tableAndStreamName;
+  private final String keyColumn;
+  private final BloomFilter bloomFilter;
 
   public RealtimeSegmentImpl(Schema schema, int capacity, String tableName, String segmentName, String streamName,
-      ServerMetrics serverMetrics, List<String> invertedIndexColumns) throws IOException {
+      ServerMetrics serverMetrics, List<String> invertedIndexColumns, String keyColumn) throws IOException {
     // initial variable setup
     this.segmentName = segmentName;
     this.serverMetrics = serverMetrics;
@@ -159,11 +163,19 @@ public class RealtimeSegmentImpl implements RealtimeSegment {
         V1Constants.Dict.INT_DICTIONARY_COL_SIZE));
 
     tableAndStreamName = tableName + "-" + streamName;
+
+    if (keyColumn != null && !keyColumn.isEmpty() && schema.hasColumn(keyColumn)) {
+      this.keyColumn = keyColumn;
+      bloomFilter = new BloomFilter(capacity, 1.0 / capacity);
+    } else {
+      this.keyColumn = null;
+      bloomFilter = null;
+    }
   }
 
   public RealtimeSegmentImpl(Schema schema, int sizeThresholdToFlushSegment, String tableName, String segmentName, String streamName,
-      ServerMetrics serverMetrics) throws IOException {
-    this(schema, sizeThresholdToFlushSegment, tableName, segmentName, streamName, serverMetrics, new ArrayList<String>());
+      ServerMetrics serverMetrics, String keyColumn) throws IOException {
+    this(schema, sizeThresholdToFlushSegment, tableName, segmentName, streamName, serverMetrics, new ArrayList<String>(), keyColumn);
   }
 
   @Override
@@ -223,6 +235,16 @@ public class RealtimeSegmentImpl implements RealtimeSegment {
       LOGGER.warn("Dropping invalid row {} with null values for column(s) {}", row, invalidColumns);
       serverMetrics.addMeteredTableValue(tableAndStreamName, ServerMeter.INVALID_REALTIME_ROWS_DROPPED, 1L);
       return true;
+    }
+
+    if (bloomFilter != null) {
+      Object keyValue = row.getValue(keyColumn);
+      if (keyValue instanceof Integer) {
+        bloomFilter.add(Ints.toByteArray((Integer) keyValue));
+      } else {
+        // TODO jfim: Add other types
+        throw new RuntimeException("Unimplemented!");
+      }
     }
 
     // updating dictionary for dimensions only
@@ -360,12 +382,12 @@ public class RealtimeSegmentImpl implements RealtimeSegment {
 
     if (fieldSpec.getFieldType() == FieldType.METRIC) {
       return new RealtimeColumnDataSource(fieldSpec, columnIndexReaderWriterMap.get(columnName),
-          invertedIndexMap.get(columnName), docIdSearchableOffset, -1, dataSchema, dictionaryMap.get(columnName));
+          invertedIndexMap.get(columnName), docIdSearchableOffset, -1, dataSchema, dictionaryMap.get(columnName), bloomFilter);
     }
 
     return new RealtimeColumnDataSource(fieldSpec, columnIndexReaderWriterMap.get(columnName),
         invertedIndexMap.get(columnName), docIdSearchableOffset, maxNumberOfMultivaluesMap.get(columnName), dataSchema,
-        dictionaryMap.get(columnName));
+        dictionaryMap.get(columnName), bloomFilter);
   }
 
   public DataSource getDataSource(String columnName, Predicate p) {

@@ -36,6 +36,7 @@ public class IndexingConfig {
   private Map<String, String> streamConfigs = new HashMap<String, String>();
   private String segmentFormatVersion;
   private String starTreeFormat;
+  private String keyColumn;
 
   public IndexingConfig() {
 
@@ -127,5 +128,13 @@ public class IndexingConfig {
 
   public void setStarTreeFormat(String starTreeFormat) {
     this.starTreeFormat = starTreeFormat;
+  }
+
+  public String getKeyColumn() {
+    return keyColumn;
+  }
+
+  public void setKeyColumn(String keyColumn) {
+    this.keyColumn = keyColumn;
   }
 }

@@ -16,6 +16,8 @@
 
 package com.linkedin.pinot.core.data.manager.realtime;
 
+import com.linkedin.pinot.core.data.filter.DictionaryGenericRowFilter;
+import com.linkedin.pinot.core.data.filter.GenericRowFilter;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -159,6 +161,7 @@ public class LLRealtimeSegmentDataManager extends SegmentDataManager {
   final String _clientId;
   private final LLCSegmentName _segmentName;
   private final PlainFieldExtractor _fieldExtractor;
+  private final GenericRowFilter _rowFilter;
   private SimpleConsumerWrapper _consumerWrapper = null;
   private final File _resourceTmpDir;
   private final String _tableName;
@@ -343,14 +346,18 @@ public class LLRealtimeSegmentDataManager extends SegmentDataManager {
         transformedRow = GenericRow.createOrReuseRow(transformedRow);
         transformedRow = _fieldExtractor.transform(decodedRow, transformedRow);
 
+        if (_rowFilter != null && transformedRow != null) {
+          transformedRow = _rowFilter.filter(transformedRow);
+        }
+
         if (transformedRow != null) {
           _serverMetrics.addMeteredTableValue(_metricKeyName, ServerMeter.REALTIME_ROWS_CONSUMED, 1);
           indexedMessageCount++;
+
+          canTakeMore = _realtimeSegment.index(transformedRow);
         } else {
           _serverMetrics.addMeteredTableValue(_metricKeyName, ServerMeter.INVALID_REALTIME_ROWS_DROPPED, 1);
         }
-
-        canTakeMore = _realtimeSegment.index(transformedRow);
       } else {
         _serverMetrics.addMeteredTableValue(_metricKeyName, ServerMeter.INVALID_REALTIME_ROWS_DROPPED, 1);
       }
@@ -552,6 +559,11 @@ public class LLRealtimeSegmentDataManager extends SegmentDataManager {
         segmentLogger.warn("Received controller response {}", response);
         return false;
       }
+
+      if (_rowFilter != null) {
+        _rowFilter.close();
+      }
+
       _realtimeTableDataManager.replaceLLSegment(_segmentNameStr);
     } catch (FileNotFoundException e) {
       segmentLogger.error("Tar file {} not found", segTarFileName, e);
@@ -566,6 +578,10 @@ public class LLRealtimeSegmentDataManager extends SegmentDataManager {
     boolean success = buildSegment(false);
     if (!success) {
       return success;
+    }
+
+    if (_rowFilter != null) {
+      _rowFilter.close();
     }
     _realtimeTableDataManager.replaceLLSegment(_segmentZKMetadata.getSegmentName());
     return true;
@@ -789,8 +805,15 @@ public class LLRealtimeSegmentDataManager extends SegmentDataManager {
 
     // Start new realtime segment
     _realtimeSegment = new RealtimeSegmentImpl(schema, _segmentMaxRowCount, tableConfig.getTableName(),
-        segmentZKMetadata.getSegmentName(), _kafkaTopic, _serverMetrics, invertedIndexColumns);
+        segmentZKMetadata.getSegmentName(), _kafkaTopic, _serverMetrics, invertedIndexColumns, indexingConfig.getKeyColumn());
     _realtimeSegment.setSegmentMetadata(segmentZKMetadata, schema);
+
+    String keyColumn = indexingConfig.getKeyColumn();
+    if (keyColumn != null && !keyColumn.isEmpty() && _realtimeSegment.hasDictionary(keyColumn)) {
+      _rowFilter = new DictionaryGenericRowFilter(keyColumn, _realtimeSegment.getDataSource(keyColumn).getDictionary(), _segmentName, realtimeTableDataManager);
+    } else {
+      _rowFilter = null;
+    }
 
     // Create message decoder
     _messageDecoder = kafkaStreamProviderConfig.getDecoder();
